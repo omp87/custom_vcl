@@ -13,12 +13,12 @@ operations = []
 operation = {}
 operation["type"] = "custom"
 operation["custom_function_type"] = "hsv_threshold"
-operation["h0"] = 127
-operation["s0"] = 127
-operation["v0"] = 127
-operation["h1"] = 127
-operation["s1"] = 127
-operation["v1"] = 127
+operation["h0"] = 10
+operation["s0"] = 250
+operation["v0"] = 175
+operation["h1"] = 20
+operation["s1"] = 255
+operation["v1"] = 185
 
 
 operations.append(operation)
