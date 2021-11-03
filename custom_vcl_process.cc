@@ -1,7 +1,7 @@
 #include "vcl/CustomVCL.h"
 #include <opencv2/imgproc.hpp>
 
-int main(int argc, char* argv)
+int main(int argc, char* argv[])
 {
 
     //create IPC structures for communicating between processes
