@@ -22,39 +22,77 @@ int main(int argc, char* argv[])
 
     while(true)
     {    
-        msgrcv(msgid_ctl_host_remote, &message_ctl_host_remote,sizeof(message) , 1, 0);
+        int msg_status = msgrcv(msgid_ctl_host_remote, &message_ctl_host_remote,sizeof(message) , 0, 0);
+        if(msg_status > 0)
+        {
+            //Read image from shared memory
+            cv::Mat* in_image = new cv::Mat(message_ctl_host_remote.data_rows, message_ctl_host_remote.data_cols, message_ctl_host_remote.data_type);
+            memcpy((uint8_t*) &(in_image->data[0]), image_buffer, message_ctl_host_remote.data_image_size);
 
-        cv::Mat* in_image = new cv::Mat(message_ctl_host_remote.data_rows, message_ctl_host_remote.data_cols, message_ctl_host_remote.data_type);
-        memcpy((uint8_t*) &(in_image->data[0]), image_buffer, message_ctl_host_remote.data_image_size);
+            //Read Json operands from shared memory and store into Json::Value
+            char* json_string_char = new char[message_ctl_host_remote.data_json_size];
+            memcpy(&(json_string_char[0]), &(image_buffer[message_ctl_host_remote.data_image_size]), message_ctl_host_remote.data_json_size);
+            std::string* json_string = new std::string(json_string_char);
+            Json::Value vcl_op;
+            Json::Reader vcl_reader;
+            bool parse_flag = vcl_reader.parse( json_string->c_str(), vcl_op);
+            if(parse_flag)
+            {
+                //Manipulate Image
+            if(vcl_op.get("custom_function_type", 0).asString() == "hsv_threshold")
+                { 
+                    cv::cvtColor(*in_image, *in_image, cv::COLOR_RGB2HSV);
+                    cv::inRange(*in_image, cv::Scalar(vcl_op.get("h0", -1).asInt(), vcl_op.get("s0", -1).asInt(), vcl_op.get("v0", -1).asInt()), cv::Scalar(vcl_op.get("h1", -1).asInt(),vcl_op.get("s1", -1).asInt(),vcl_op.get("v1", -1).asInt()), *in_image);
 
-        char* json_string_char = new char[message_ctl_host_remote.data_json_size];
-        memcpy(&(json_string_char[0]), &(image_buffer[message_ctl_host_remote.data_image_size]), message_ctl_host_remote.data_json_size);
-        std::string json_string(json_string_char);
-        std::cout << json_string << std::endl;
+                    size_t in_image_size = in_image->total() * in_image->elemSize();
+                    memcpy(&(image_buffer[0]), &(in_image->data[0]), in_image_size);
 
-        //Manipulate Image
-        cv::inRange(*in_image, cv::Scalar(0,0,0), cv::Scalar(255,255,255), *in_image);
-        cv::resize(*in_image, *in_image, cv::Size(int(in_image->cols/8), int(in_image->rows/8)));
+                    //Send Response back to host
+                    message_ctl_remote_host.message_type = 1;
+                    message_ctl_remote_host.data_rows = in_image->rows;
+                    message_ctl_remote_host.data_cols = in_image->cols;
+                    message_ctl_remote_host.data_type = in_image->type();
+                    message_ctl_remote_host.data_image_size = in_image_size;
+                    message_ctl_remote_host.data_json_size = 0;
 
-        //Copy image back into shared memory
-        size_t in_image_size = in_image->total() * in_image->elemSize();
-        memcpy(&(image_buffer[0]), &(in_image->data[0]), in_image_size);
+                }
+                else
+                {
+                    //Send Response back to host in event of error
+                    message_ctl_remote_host.message_type = 1;
+                    message_ctl_remote_host.data_rows = 0;
+                    message_ctl_remote_host.data_cols = 0;
+                    message_ctl_remote_host.data_type = 0;
+                    message_ctl_remote_host.data_image_size = 0;
+                    message_ctl_remote_host.data_json_size = 0;
 
-        //Send Response back to host
-        message_ctl_remote_host.message_type = 1;
-        message_ctl_remote_host.data_rows = in_image->rows;
-        message_ctl_remote_host.data_cols = in_image->cols;
-        message_ctl_remote_host.data_type = in_image->type();
-        message_ctl_remote_host.data_image_size = in_image_size;
-        message_ctl_remote_host.data_json_size = 0;
+                }
 
-        int msg_send_result = msgsnd(msgid_ctl_remote_host, &message_ctl_remote_host, sizeof(message), 0);
-        if(msg_send_result < 0)
-        { }
 
-        //Free allocated memory
-        delete in_image;
-        delete json_string_char;
+
+
+
+                size_t in_image_size = in_image->total() * in_image->elemSize();
+                memcpy(&(image_buffer[0]), &(in_image->data[0]), in_image_size);
+
+                //Send Response back to host
+                message_ctl_remote_host.message_type = 1;
+                message_ctl_remote_host.data_rows = in_image->rows;
+                message_ctl_remote_host.data_cols = in_image->cols;
+                message_ctl_remote_host.data_type = in_image->type();
+                message_ctl_remote_host.data_image_size = in_image_size;
+                message_ctl_remote_host.data_json_size = 0;
+            }
+
+            int msg_send_result = msgsnd(msgid_ctl_remote_host, &message_ctl_remote_host, sizeof(message), 0);
+            if(msg_send_result < 0)
+            { }
+
+            //Free allocated memory
+            delete in_image;
+            delete json_string_char;
+            delete json_string;
+        }
     }
 
     //Free shared IPC components
@@ -62,20 +100,4 @@ int main(int argc, char* argv[])
     shmdt(image_buffer);
     shmctl(shmid_data_host_remote,IPC_RMID,NULL);
    return 0;
-}
-
-void custom_vcl_function(VCL::Image& img, const Json::Value& op)
-{
-    cv::Mat tmp = img.get_cvmat(true);
-    if(op.get("custom_function_type", 0).asString() == "hsv_threshold")
-    { 
-        cv::cvtColor(tmp, tmp, cv::COLOR_RGB2HSV);
-        cv::inRange(tmp, cv::Scalar(op.get("h0", -1).asInt(), op.get("s0", -1).asInt(), op.get("v0", -1).asInt()), cv::Scalar(op.get("h1", -1).asInt(),op.get("s1", -1).asInt(),op.get("v1", -1).asInt()), tmp);
-        img.deep_copy_cv(tmp);
-    }
-    else
-    {
-        img.deep_copy_cv(tmp);
-    }
-
 }
