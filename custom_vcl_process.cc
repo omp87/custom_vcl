@@ -8,7 +8,7 @@ int main(int argc, char* argv[])
     key_t key_ctl_host_remote;
     key_ctl_host_remote = ftok("keyfile", 60);
     int msgid_ctl_host_remote = msgget(key_ctl_host_remote, 0666 | IPC_CREAT);
-    message message_ctl_host_remote;
+    data_message message_ctl_host_remote;
 
     key_t key_data_host_remote;
     key_data_host_remote = ftok("keyfile", 61);
@@ -18,11 +18,21 @@ int main(int argc, char* argv[])
     key_t key_ctl_remote_host;
     key_ctl_remote_host = ftok("keyfile", 62);
     int msgid_ctl_remote_host = msgget(key_ctl_remote_host, 0666 | IPC_CREAT);;
-    message message_ctl_remote_host;
+    data_message message_ctl_remote_host;
+
+    heartbeat_message message_hb_host_remote;
+    heartbeat_message message_hb_remote_host;
 
     while(true)
-    {    
-        int msg_status = msgrcv(msgid_ctl_host_remote, &message_ctl_host_remote,sizeof(message) , 0, 0);
+    {
+        //Handle handshake to indicate remote process is alive
+        int in_alive_msg_status = msgrcv(msgid_ctl_host_remote, &message_hb_host_remote,sizeof(heartbeat_message) , (long) vcl_message_type::VCL_MESSAGE_HEARTBEAT, 0);
+
+        message_hb_remote_host.message_type = (long) vcl_message_type::VCL_MESSAGE_HEARTBEAT;
+        message_hb_remote_host.status = 0;
+        int msg_send_result = msgsnd(msgid_ctl_remote_host, &message_hb_remote_host, sizeof(heartbeat_message), 0);
+
+        int msg_status = msgrcv(msgid_ctl_host_remote, &message_ctl_host_remote,sizeof(data_message) , (long) vcl_message_type::VCL_MESSAGE_DATA, 0);
         if(msg_status > 0)
         {
             //Read image from shared memory
@@ -48,7 +58,7 @@ int main(int argc, char* argv[])
                     memcpy(&(image_buffer[0]), &(in_image->data[0]), in_image_size);
 
                     //Send Response back to host
-                    message_ctl_remote_host.message_type = 1;
+                    message_ctl_remote_host.message_type = (long) vcl_message_type::VCL_MESSAGE_DATA;
                     message_ctl_remote_host.data_rows = in_image->rows;
                     message_ctl_remote_host.data_cols = in_image->cols;
                     message_ctl_remote_host.data_type = in_image->type();
@@ -59,32 +69,16 @@ int main(int argc, char* argv[])
                 else
                 {
                     //Send Response back to host in event of error
-                    message_ctl_remote_host.message_type = 1;
+                    message_ctl_remote_host.message_type = (long) vcl_message_type::VCL_MESSAGE_DATA;
                     message_ctl_remote_host.data_rows = 0;
                     message_ctl_remote_host.data_cols = 0;
                     message_ctl_remote_host.data_type = 0;
                     message_ctl_remote_host.data_image_size = 0;
                     message_ctl_remote_host.data_json_size = 0;
-
                 }
-
-
-
-
-
-                size_t in_image_size = in_image->total() * in_image->elemSize();
-                memcpy(&(image_buffer[0]), &(in_image->data[0]), in_image_size);
-
-                //Send Response back to host
-                message_ctl_remote_host.message_type = 1;
-                message_ctl_remote_host.data_rows = in_image->rows;
-                message_ctl_remote_host.data_cols = in_image->cols;
-                message_ctl_remote_host.data_type = in_image->type();
-                message_ctl_remote_host.data_image_size = in_image_size;
-                message_ctl_remote_host.data_json_size = 0;
             }
 
-            int msg_send_result = msgsnd(msgid_ctl_remote_host, &message_ctl_remote_host, sizeof(message), 0);
+            int msg_send_result = msgsnd(msgid_ctl_remote_host, &message_ctl_remote_host, sizeof(data_message), 0);
             if(msg_send_result < 0)
             { }
 
